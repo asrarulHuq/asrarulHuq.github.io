@@ -1,0 +1,109 @@
+name: Sync Upstream
+
+# Checks filebrowser/filebrowser for new releases weekly.
+# When a new upstream release is found, opens a PR to merge it.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Upstream tag or branch to sync (e.g. v2.64.0 or master)"
+        required: false
+        default: "master"
+
+jobs:
+  sync:
+    name: Sync from upstream filebrowser
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream latest release tag
+        id: upstream
+        run: |
+          UPSTREAM_TAG=$(curl -s https://api.github.com/repos/filebrowser/filebrowser/releases/latest \
+            | jq -r '.tag_name')
+          echo "tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+          echo "Upstream latest tag: $UPSTREAM_TAG"
+
+      - name: Determine ref to use
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.upstream_ref }}" ]; then
+            REF="${{ github.event.inputs.upstream_ref }}"
+          else
+            REF="${{ steps.upstream.outputs.tag }}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          # Derive safe branch name
+          BRANCH="sync/upstream-${REF//\//-}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Check if sync branch already exists
+        id: branch_check
+        run: |
+          git fetch origin --prune
+          if git ls-remote --exit-code --heads origin "${{ steps.ref.outputs.branch }}" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add upstream remote and fetch ref
+        if: steps.branch_check.outputs.exists == 'false'
+        run: |
+          git remote add upstream https://github.com/filebrowser/filebrowser.git || true
+          git fetch upstream "${{ steps.ref.outputs.ref }}" --depth=1
+
+      - name: Create sync branch and apply upstream changes
+        if: steps.branch_check.outputs.exists == 'false'
+        run: |
+          git checkout -b "${{ steps.ref.outputs.branch }}"
+          # Extract upstream source, preserving our .github and CNAME
+          TMPDIR=$(mktemp -d)
+          git archive FETCH_HEAD | tar -x -C "$TMPDIR" --exclude='.github'
+          # Remove old upstream files (but keep our additions)
+          git ls-files --others --exclude-standard > /tmp/our_files.txt || true
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='CNAME' \
+            "$TMPDIR/" .
+          git add -A
+          git commit -m "chore: sync upstream filebrowser ${{ steps.ref.outputs.ref }}"
+          git push origin "${{ steps.ref.outputs.branch }}"
+
+      - name: Open Pull Request
+        if: steps.branch_check.outputs.exists == 'false'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: "${{ steps.ref.outputs.branch }}"
+          base: main
+          title: "chore: sync upstream filebrowser ${{ steps.ref.outputs.ref }}"
+          body: |
+            ## Upstream Sync
+
+            This PR syncs the latest changes from [filebrowser/filebrowser](https://github.com/filebrowser/filebrowser) at `${{ steps.ref.outputs.ref }}`.
+
+            ### What changed
+            See [upstream changelog](https://github.com/filebrowser/filebrowser/releases/tag/${{ steps.ref.outputs.ref }}) for details.
+
+            ### Review checklist
+            - [ ] Review upstream changes for conflicts with our customizations
+            - [ ] Verify CI passes
+            - [ ] Merge when ready
+          labels: upstream-sync

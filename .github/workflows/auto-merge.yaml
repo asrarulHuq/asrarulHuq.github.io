@@ -1,0 +1,33 @@
+name: Auto Merge
+
+# Automatically merges PRs that:
+#  - Are opened by GitHub Copilot (automated customization PRs)
+#  - Pass all CI checks
+#  - Are labeled 'auto-merge'
+
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+  check_suite:
+    types: [completed]
+  workflow_run:
+    workflows: ["Continuous Integration"]
+    types: [completed]
+
+jobs:
+  auto-merge:
+    name: Auto Merge Approved PRs
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'auto-merge')
+    steps:
+      - name: Enable auto-merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ github.event.pull_request.number }}
+          merge-method: squash
