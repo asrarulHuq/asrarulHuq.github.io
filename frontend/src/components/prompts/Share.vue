@@ -114,6 +114,15 @@
           v-model.trim="password"
           tabindex="3"
         />
+        <p>{{ $t("prompts.shareSlugLabel") }}</p>
+        <input
+          class="input input--block"
+          type="text"
+          v-model.trim="slug"
+          :placeholder="$t('prompts.shareSlugPlaceholder')"
+          tabindex="4"
+          pattern="[a-zA-Z0-9_\-]+"
+        />
       </div>
 
       <div class="card-action">
@@ -122,7 +131,7 @@
           @click="() => switchListing()"
           :aria-label="$t('buttons.cancel')"
           :title="$t('buttons.cancel')"
-          tabindex="5"
+          tabindex="6"
         >
           {{ $t("buttons.cancel") }}
         </button>
@@ -132,7 +141,7 @@
           @click="submit"
           :aria-label="$t('buttons.share')"
           :title="$t('buttons.share')"
-          tabindex="4"
+          tabindex="5"
         >
           {{ $t("buttons.share") }}
         </button>
@@ -158,6 +167,7 @@ export default {
       links: [],
       clip: null,
       password: "",
+      slug: "",
       listing: true,
     };
   },
@@ -223,13 +233,14 @@ export default {
         let res = null;
 
         if (!this.time) {
-          res = await api.share.create(this.url, this.password);
+          res = await api.share.create(this.url, this.password, "", "hours", this.slug);
         } else {
           res = await api.share.create(
             this.url,
             this.password,
             this.time,
-            this.unit
+            this.unit,
+            this.slug
           );
         }
 
@@ -239,6 +250,7 @@ export default {
         this.time = 0;
         this.unit = "hours";
         this.password = "";
+        this.slug = "";
 
         this.listing = true;
       } catch (e) {

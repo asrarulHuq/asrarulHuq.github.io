@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +17,16 @@ import (
 
 	fberrors "github.com/filebrowser/filebrowser/v2/errors"
 	"github.com/filebrowser/filebrowser/v2/share"
+)
+
+var (
+	// slugPattern matches only URL-safe characters: letters, digits, hyphens, underscores.
+	slugPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	// reservedSlugs are URL segments that would conflict with the app's own routes.
+	reservedSlugs = map[string]struct{}{
+		"api": {}, "share": {}, "files": {}, "settings": {},
+		"login": {}, "logout": {}, "static": {},
+	}
 )
 
 func withPermShare(fn handleFunc) handleFunc {
@@ -100,13 +111,35 @@ var sharePostHandler = withPermShare(func(w http.ResponseWriter, r *http.Request
 		defer r.Body.Close()
 	}
 
-	bytes := make([]byte, 6)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return http.StatusInternalServerError, err
+	var str string
+	if body.Slug != "" {
+		// Validate length.
+		if len(body.Slug) < 3 || len(body.Slug) > 64 {
+			return http.StatusBadRequest, fmt.Errorf("slug must be between 3 and 64 characters")
+		}
+		// Validate characters.
+		if !slugPattern.MatchString(body.Slug) {
+			return http.StatusBadRequest, fmt.Errorf("slug may only contain letters, numbers, hyphens and underscores")
+		}
+		// Reject reserved words.
+		if _, reserved := reservedSlugs[strings.ToLower(body.Slug)]; reserved {
+			return http.StatusBadRequest, fmt.Errorf("slug '%s' is reserved", body.Slug)
+		}
+		// Check for conflicts.
+		if _, err := d.store.Share.GetByHash(body.Slug); err == nil {
+			return http.StatusConflict, fmt.Errorf("a share with slug '%s' already exists", body.Slug)
+		} else if !errors.Is(err, fberrors.ErrNotExist) {
+			return http.StatusInternalServerError, err
+		}
+		str = body.Slug
+	} else {
+		bytes := make([]byte, 6)
+		_, err := rand.Read(bytes)
+		if err != nil {
+			return http.StatusInternalServerError, err
+		}
+		str = base64.URLEncoding.EncodeToString(bytes)
 	}
-
-	str := base64.URLEncoding.EncodeToString(bytes)
 
 	var expire int64 = 0
 

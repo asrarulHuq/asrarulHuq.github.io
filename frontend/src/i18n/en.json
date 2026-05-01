@@ -164,6 +164,8 @@
     "uploadFiles": "Uploading {files} files...",
     "uploadMessage": "Select an option to upload.",
     "optionalPassword": "Optional password",
+    "shareSlugLabel": "Custom link name (optional)",
+    "shareSlugPlaceholder": "e.g. my-project-files (letters, numbers, - and _ only)"
     "resolution": "Resolution",
     "discardEditorChanges": "Are you sure you wish to discard the changes you've made?",
     "replaceOrSkip": "Replace or skip files",
